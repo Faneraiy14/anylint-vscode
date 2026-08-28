@@ -1,0 +1,51 @@
+{
+  "name": "anylint-vscode",
+  "displayName": "AnyLint",
+  "description": "Inline-підказки з anylint (кросплатформного статичного аналізатора, 16 мов) прямо в редакторі, з quick fix для правил, що це підтримують.",
+  "version": "0.1.0",
+  "publisher": "Faneraiy14",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Faneraiy14/anylint-vscode.git"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Linters"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "AnyLint",
+      "properties": {
+        "anylint.phpPath": {
+          "type": "string",
+          "default": "php",
+          "description": "Команда для запуску PHP (сам anylint написаний на PHP, незалежно від того, яку мову він аналізує)."
+        },
+        "anylint.binPath": {
+          "type": "string",
+          "default": "",
+          "description": "Абсолютний шлях до bin/anylint (клон репозиторію Faneraiy14/anylint). Порожньо = розширення спробує знайти сусідню теку \"anylint\" автоматично."
+        },
+        "anylint.runOn": {
+          "type": "string",
+          "enum": ["save", "type"],
+          "default": "save",
+          "description": "Коли перезапускати аналіз: після збереження файлу, чи (з невеликою затримкою) під час набору."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "anylint.runOnCurrentFile",
+        "title": "AnyLint: перевірити поточний файл"
+      }
+    ]
+  }
+}
