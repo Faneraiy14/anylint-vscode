@@ -86,6 +86,55 @@ test('AnyLintTreeProvider: файл без знахідок (порожній di
     assert.equal(files.find((f) => f.fileUri === uri), undefined);
 });
 
+test('analyzeWorkspace: сканує весь корінь workspace одним прогоном, не лише відкриті вкладки', async () => {
+    const vscodeMock = (await import('vscode')).default;
+    const fixturesDir = path.join(__dirname, 'fixtures');
+    vscodeMock.__setWorkspaceFolders([{ uri: { fsPath: fixturesDir } }]);
+    vscodeMock.__setConfig({ binPath: ANYLINT_BIN, phpPath: PHP });
+
+    await _internal.analyzeWorkspace();
+
+    const promotableUri = vscodeMock.Uri.file(path.join(fixturesDir, 'promotable.php'));
+    const promotableFindings = _internal.findingsByDocUri.get(promotableUri.toString());
+    assert.ok(promotableFindings, 'promotable.php має знахідки після сканування ВСЬОГО workspace');
+    assert.ok(promotableFindings.some((f) => f.rule === 'promotable-return-type'));
+
+    const cleanUri = vscodeMock.Uri.file(path.join(fixturesDir, 'clean.php'));
+    assert.equal(_internal.findingsByDocUri.has(cleanUri.toString()), false, 'чистий файл не потрапляє в findingsByDocUri');
+
+    _internal.findingsByDocUri.delete(promotableUri.toString());
+    _internal.diagnostics.delete(promotableUri);
+    vscodeMock.__setWorkspaceFolders([{ uri: { fsPath: '/tmp/fake-workspace' } }]);
+    vscodeMock.__setConfig({});
+});
+
+test('analyzeWorkspace: файл, полагоджений з попереднього прогону, зникає з diagnostics', async () => {
+    const vscodeMock = (await import('vscode')).default;
+    const fixturesDir = path.join(__dirname, 'fixtures');
+    const promotableUri = vscodeMock.Uri.file(path.join(fixturesDir, 'promotable.php'));
+
+    // Симулюємо "застарілу" знахідку з попереднього прогону на файлі,
+    // якого поточний прогін уже не поверне (файл поза fixtures/).
+    const staleUri = vscodeMock.Uri.file(path.join(fixturesDir, 'було-і-нема.php'));
+    _internal.diagnostics.set(staleUri, [{ message: 'стара знахідка' }]);
+
+    vscodeMock.__setWorkspaceFolders([{ uri: { fsPath: fixturesDir } }]);
+    vscodeMock.__setConfig({ binPath: ANYLINT_BIN, phpPath: PHP });
+
+    await _internal.analyzeWorkspace();
+
+    let staleStillThere = false;
+    _internal.diagnostics.forEach((uri) => {
+        if (uri.toString() === staleUri.toString()) staleStillThere = true;
+    });
+    assert.equal(staleStillThere, false, 'застаріла знахідка для зниклого файлу має бути прибрана');
+
+    _internal.findingsByDocUri.delete(promotableUri.toString());
+    _internal.diagnostics.delete(promotableUri);
+    vscodeMock.__setWorkspaceFolders([{ uri: { fsPath: '/tmp/fake-workspace' } }]);
+    vscodeMock.__setConfig({});
+});
+
 test('findMatchingFinding: знаходить Finding за рядком і правилом діагностики', () => {
     const uri = { toString: () => 'file:///fake.php' };
     const document = { uri };

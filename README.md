@@ -40,9 +40,20 @@ every save — set `anylint.binPath` explicitly if your layout doesn't match.
 A dedicated "AnyLint" icon in the Activity Bar opens a tree view: one node
 per file with open findings, its children the findings themselves (severity
 icon, message, rule as the description), sorted by line. Click one to jump
-straight to it. The refresh button in the view's title bar re-runs anylint
-on every currently open supported file — useful right after activation,
-before you've saved anything.
+straight to it. Two buttons in the view's title bar:
+
+- 🔍 **Scan workspace** (`anylint.scanWorkspace`) — one `bin/anylint <workspace-root> --json`
+  call covering the whole project, not just open tabs. This is the one to
+  reach for right after opening a project — the tree starts empty
+  otherwise, since nothing's been analyzed yet.
+- 🔄 **Refresh open files** (`anylint.refreshAll`) — re-runs anylint on
+  every currently open editor tab only; faster when you just want to
+  recheck what you're actively working on.
+
+A workspace scan also clears out findings for files that got fixed since
+the last scan (diffed against the previous run, not just additive) —
+otherwise a resolved finding would sit in the tree forever until you
+touched that file again.
 
 ## Settings
 
@@ -68,15 +79,29 @@ code --install-extension anylint-vscode-0.1.0.vsix
   that starts carrying one gets a working Quick Fix for free), and a
   `TreeDataProvider` (`AnyLintTreeProvider`) that reads straight off the
   same `vscode.DiagnosticCollection` the Problems panel uses, rather than
-  keeping a second parallel copy of the findings.
+  keeping a second parallel copy of the findings. `analyzeWorkspace()`
+  runs anylint once against the workspace root (anylint's own CLI already
+  walks directories recursively — no need to loop per file), then opens
+  only the files that came back with findings (via `openTextDocument`,
+  without showing them) to build `Range`s from the real line text.
 - `media/icon.png` — the extension's Marketplace/Extensions-list icon.
   `media/activitybar-icon.svg` — the monochrome Activity Bar icon
   (`currentColor` outline, VS Code recolors it per theme).
 - `test/smoke.mjs` — tests the real logic (extension detection, the
-  actual anylint subprocess call, fix-matching) against a minimal mock of
-  the `vscode` module (`node_modules/vscode/` — test-only, not a real
-  dependency) plus real anylint runs against `test/fixtures/*.php`. No
-  `@vscode/test-electron` / full editor launch needed for this.
+  actual anylint subprocess call, fix-matching, tree provider, workspace
+  scanning) against a minimal mock of the `vscode` module plus real
+  anylint runs against `test/fixtures/*.php`. No `@vscode/test-electron` /
+  full editor launch needed for this.
+- `test/vscode-mock/` — the mock itself, a local `devDependency`
+  (`"vscode": "file:test/vscode-mock"` in `package.json`) so `npm install`
+  symlinks it into `node_modules/vscode` — a fresh clone gets working
+  tests, not just working code, without a real `vscode` npm package
+  existing anywhere.
+
+```bash
+npm install
+npm test
+```
 
 ## License
 

@@ -143,6 +143,22 @@ function runAnylint(filePath, binPath, phpPath) {
     });
 }
 
+function findingsToDiagnostics(findings, document) {
+    return findings.map((f) => {
+        const line = Math.max(0, f.line - 1);
+        const lineText = line < document.lineCount ? document.lineAt(line).text : '';
+        const range = new vscode.Range(line, 0, line, lineText.length);
+        const severity =
+            f.severity === 'error' ? vscode.DiagnosticSeverity.Error
+                : f.severity === 'warning' ? vscode.DiagnosticSeverity.Warning
+                    : vscode.DiagnosticSeverity.Information;
+        const diag = new vscode.Diagnostic(range, f.message, severity);
+        diag.source = `anylint:${f.rule}`;
+        diag.code = f.rule;
+        return diag;
+    });
+}
+
 async function analyzeDocument(document) {
     if (!isSupported(document)) return;
 
@@ -158,27 +174,82 @@ async function analyzeDocument(document) {
     }
 
     findingsByDocUri.set(document.uri.toString(), result.findings);
-
-    const diags = result.findings.map((f) => {
-        const line = Math.max(0, f.line - 1);
-        const lineText = line < document.lineCount ? document.lineAt(line).text : '';
-        const range = new vscode.Range(line, 0, line, lineText.length);
-        const severity =
-            f.severity === 'error' ? vscode.DiagnosticSeverity.Error
-                : f.severity === 'warning' ? vscode.DiagnosticSeverity.Warning
-                    : vscode.DiagnosticSeverity.Information;
-        const diag = new vscode.Diagnostic(range, f.message, severity);
-        diag.source = `anylint:${f.rule}`;
-        diag.code = f.rule;
-        return diag;
-    });
-
-    diagnostics.set(document.uri, diags);
+    diagnostics.set(document.uri, findingsToDiagnostics(result.findings, document));
     treeProvider.refresh();
 }
 
 function analyzeAllOpenDocuments() {
     vscode.workspace.textDocuments.forEach((doc) => analyzeDocument(doc));
+}
+
+// На відміну від analyzeAllOpenDocuments() (лише вкладки, вже відкриті в
+// редакторі), тут anylint отримує КОРІНЬ workspace одним викликом -
+// Analyzer::analyzePath() у самому anylint сам рекурсивно обходить
+// директорію, тож це один subprocess на весь проєкт, а не по одному на
+// кожен файл. Findings групуються за f.file, і лише файли З findings
+// відкриваються через openTextDocument() (без показу в редакторі) - щоб
+// побудувати Range з реального тексту рядка, не одним оком не читаючи
+// увесь інакше чистий проєкт.
+async function analyzeWorkspace() {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders || folders.length === 0) {
+        vscode.window.showWarningMessage('AnyLint: немає відкритого workspace для сканування.');
+        return;
+    }
+    const binPath = resolveBinPath();
+    if (!binPath) {
+        vscode.window.showWarningMessage(
+            'AnyLint: не знайдено bin/anylint. Задай "anylint.binPath" у налаштуваннях.'
+        );
+        return;
+    }
+    const phpPath = vscode.workspace.getConfiguration('anylint').get('phpPath') || 'php';
+
+    const workspaceRoot = folders[0].uri.fsPath;
+    const result = await runAnylint(workspaceRoot, binPath, phpPath);
+    if (!result.ok) {
+        vscode.window.showErrorMessage(`AnyLint: ${result.error}`);
+        return;
+    }
+
+    const byFile = new Map();
+    for (const f of result.findings) {
+        if (!byFile.has(f.file)) byFile.set(f.file, []);
+        byFile.get(f.file).push(f);
+    }
+
+    // Файл, що раніше мав знахідки в межах цього ж workspace, а тепер
+    // (уже полагоджений) відсутній у byFile, інакше лишився б назавжди
+    // "брудним" у панелі й Problems - жоден наступний прогін
+    // analyzeWorkspace() його вже не торкається, бо цикл нижче лише
+    // ДОДАЄ записи для файлів З поточними знахідками.
+    const staleUris = [];
+    diagnostics.forEach((uri) => {
+        if (uri.fsPath.startsWith(workspaceRoot) && !byFile.has(uri.fsPath)) staleUris.push(uri);
+    });
+    for (const uri of staleUris) {
+        diagnostics.delete(uri);
+        findingsByDocUri.delete(uri.toString());
+    }
+
+    for (const [file, findings] of byFile) {
+        const uri = vscode.Uri.file(file);
+        let document;
+        try {
+            document = await vscode.workspace.openTextDocument(uri);
+        } catch {
+            continue; // файл зник/недоступний між прогоном anylint і зараз - пропускаємо, не падаємо
+        }
+        findingsByDocUri.set(uri.toString(), findings);
+        diagnostics.set(uri, findingsToDiagnostics(findings, document));
+    }
+
+    treeProvider.refresh();
+    vscode.window.showInformationMessage(
+        byFile.size > 0
+            ? `AnyLint: ${result.findings.length} знахідок у ${byFile.size} файлах.`
+            : 'AnyLint: проблем не знайдено.'
+    );
 }
 
 function scheduleAnalyze(document, delayMs) {
@@ -241,6 +312,9 @@ function activate(context) {
     context.subscriptions.push(
         vscode.commands.registerCommand('anylint.refreshAll', analyzeAllOpenDocuments)
     );
+    context.subscriptions.push(
+        vscode.commands.registerCommand('anylint.scanWorkspace', analyzeWorkspace)
+    );
 
     const runOn = () => vscode.workspace.getConfiguration('anylint').get('runOn') || 'save';
 
@@ -282,5 +356,6 @@ module.exports = {
     _internal: {
         isSupported, resolveBinPath, runAnylint, findMatchingFinding, findingsByDocUri, SUPPORTED_EXTENSIONS,
         diagnostics, treeProvider, AnyLintFileItem, AnyLintFindingItem, analyzeDocument,
+        findingsToDiagnostics, analyzeWorkspace,
     },
 };

@@ -17,6 +17,12 @@
     "Linters"
   ],
   "main": "./extension.js",
+  "scripts": {
+    "test": "node --test test/*.mjs"
+  },
+  "devDependencies": {
+    "vscode": "file:test/vscode-mock"
+  },
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -51,6 +57,11 @@
         "command": "anylint.refreshAll",
         "title": "AnyLint: перевірити всі відкриті файли",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "anylint.scanWorkspace",
+        "title": "AnyLint: перевірити весь workspace",
+        "icon": "$(search)"
       }
     ],
     "viewsContainers": {
@@ -75,16 +86,21 @@
     "menus": {
       "view/title": [
         {
+          "command": "anylint.scanWorkspace",
+          "when": "view == anylintFindings",
+          "group": "navigation@1"
+        },
+        {
           "command": "anylint.refreshAll",
           "when": "view == anylintFindings",
-          "group": "navigation"
+          "group": "navigation@2"
         }
       ]
     },
     "viewsWelcome": [
       {
         "view": "anylintFindings",
-        "contents": "Немає знахідок у відкритих файлах.\n[Перевірити всі відкриті файли](command:anylint.refreshAll)"
+        "contents": "Немає знахідок у відкритих файлах.\n[Перевірити весь workspace](command:anylint.scanWorkspace)\n[Перевірити лише відкриті файли](command:anylint.refreshAll)"
       }
     ]
   }
