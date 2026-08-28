@@ -4,8 +4,9 @@
 
 A VS Code extension that runs [anylint](https://github.com/Faneraiy14/anylint)
 (a cross-platform static analyzer covering 16 languages through one shared
-plugin architecture) directly in the editor: inline diagnostics on save, plus
-a Quick Fix for rules that support one.
+plugin architecture) directly in the editor: inline diagnostics on save, a
+Quick Fix for rules that support one, and a sidebar view listing every
+finding across your open files.
 
 ## Why this exists
 
@@ -34,6 +35,15 @@ whatever `fix` a `Finding` carries, generically.
 If none of those exist, the extension stays quiet rather than nagging on
 every save — set `anylint.binPath` explicitly if your layout doesn't match.
 
+## Sidebar
+
+A dedicated "AnyLint" icon in the Activity Bar opens a tree view: one node
+per file with open findings, its children the findings themselves (severity
+icon, message, rule as the description), sorted by line. Click one to jump
+straight to it. The refresh button in the view's title bar re-runs anylint
+on every currently open supported file — useful right after activation,
+before you've saved anything.
+
 ## Settings
 
 | Setting | Default | Meaning |
@@ -53,9 +63,15 @@ code --install-extension anylint-vscode-0.1.0.vsix
 ## Architecture
 
 - `extension.js` — everything: spawns `php bin/anylint <file> --json`,
-  maps `Finding[]` to `vscode.Diagnostic[]`, and registers a
+  maps `Finding[]` to `vscode.Diagnostic[]`, registers a
   `CodeActionProvider` that applies `Finding.fix` generically (any rule
-  that starts carrying one gets a working Quick Fix for free).
+  that starts carrying one gets a working Quick Fix for free), and a
+  `TreeDataProvider` (`AnyLintTreeProvider`) that reads straight off the
+  same `vscode.DiagnosticCollection` the Problems panel uses, rather than
+  keeping a second parallel copy of the findings.
+- `media/icon.png` — the extension's Marketplace/Extensions-list icon.
+  `media/activitybar-icon.svg` — the monochrome Activity Bar icon
+  (`currentColor` outline, VS Code recolors it per theme).
 - `test/smoke.mjs` — tests the real logic (extension detection, the
   actual anylint subprocess call, fix-matching) against a minimal mock of
   the `vscode` module (`node_modules/vscode/` — test-only, not a real

@@ -29,6 +29,74 @@ const diagnostics = vscode.languages.createDiagnosticCollection('anylint');
 const findingsByDocUri = new Map();
 const debounceTimers = new Map();
 
+// Бічна панель (TreeView) - будується напряму з diagnostics (не з
+// findingsByDocUri), щоб не тримати другу паралельну структуру даних:
+// усе, що показує Problems-панель VS Code, показує й наша.
+class AnyLintFindingItem extends vscode.TreeItem {
+    constructor(uri, diagnostic) {
+        super(diagnostic.message, vscode.TreeItemCollapsibleState.None);
+        this.description = diagnostic.code;
+        this.tooltip = `[${diagnostic.code}] ${diagnostic.message}`;
+        this.iconPath = new vscode.ThemeIcon(
+            diagnostic.severity === vscode.DiagnosticSeverity.Error ? 'error'
+                : diagnostic.severity === vscode.DiagnosticSeverity.Warning ? 'warning'
+                    : 'info'
+        );
+        this.command = {
+            command: 'vscode.open',
+            title: 'Відкрити знахідку',
+            arguments: [uri, { selection: diagnostic.range }],
+        };
+    }
+}
+
+class AnyLintFileItem extends vscode.TreeItem {
+    constructor(uri, diags) {
+        super(path.basename(uri.fsPath), vscode.TreeItemCollapsibleState.Expanded);
+        this.description = String(diags.length);
+        this.resourceUri = uri;
+        this.contextValue = 'anylintFile';
+        this.fileUri = uri;
+        this.diags = diags;
+    }
+}
+
+class AnyLintTreeProvider {
+    constructor(diagnosticsCollection) {
+        this.diagnosticsCollection = diagnosticsCollection;
+        this._onDidChangeTreeData = new vscode.EventEmitter();
+        this.onDidChangeTreeData = this._onDidChangeTreeData.event;
+    }
+
+    refresh() {
+        this._onDidChangeTreeData.fire();
+    }
+
+    getTreeItem(element) {
+        return element;
+    }
+
+    getChildren(element) {
+        if (!element) {
+            const files = [];
+            this.diagnosticsCollection.forEach((uri, diags) => {
+                if (diags.length > 0) files.push(new AnyLintFileItem(uri, diags));
+            });
+            files.sort((a, b) => a.label.localeCompare(b.label));
+            return files;
+        }
+        if (element instanceof AnyLintFileItem) {
+            return element.diags
+                .slice()
+                .sort((a, b) => a.range.start.line - b.range.start.line)
+                .map((d) => new AnyLintFindingItem(element.fileUri, d));
+        }
+        return [];
+    }
+}
+
+const treeProvider = new AnyLintTreeProvider(diagnostics);
+
 function isSupported(document) {
     if (document.uri.scheme !== 'file') return false;
     return SUPPORTED_EXTENSIONS.has(path.extname(document.uri.fsPath));
@@ -106,6 +174,11 @@ async function analyzeDocument(document) {
     });
 
     diagnostics.set(document.uri, diags);
+    treeProvider.refresh();
+}
+
+function analyzeAllOpenDocuments() {
+    vscode.workspace.textDocuments.forEach((doc) => analyzeDocument(doc));
 }
 
 function scheduleAnalyze(document, delayMs) {
@@ -157,12 +230,16 @@ function activate(context) {
             { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }
         )
     );
+    context.subscriptions.push(vscode.window.registerTreeDataProvider('anylintFindings', treeProvider));
 
     context.subscriptions.push(
         vscode.commands.registerCommand('anylint.runOnCurrentFile', () => {
             const editor = vscode.window.activeTextEditor;
             if (editor) analyzeDocument(editor.document);
         })
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand('anylint.refreshAll', analyzeAllOpenDocuments)
     );
 
     const runOn = () => vscode.workspace.getConfiguration('anylint').get('runOn') || 'save';
@@ -184,11 +261,12 @@ function activate(context) {
             debounceTimers.delete(doc.uri.toString());
             findingsByDocUri.delete(doc.uri.toString());
             diagnostics.delete(doc.uri);
+            treeProvider.refresh();
         })
     );
 
     // Файли, вже відкриті на момент активації - onDidOpenTextDocument їх не ловить.
-    vscode.workspace.textDocuments.forEach((doc) => analyzeDocument(doc));
+    analyzeAllOpenDocuments();
 }
 
 function deactivate() {
@@ -201,5 +279,8 @@ module.exports = {
     deactivate,
     // Внутрішні функції - лише для тестів (test/*.mjs), не частина
     // публічного контракту розширення для VS Code самого по собі.
-    _internal: { isSupported, resolveBinPath, runAnylint, findMatchingFinding, findingsByDocUri, SUPPORTED_EXTENSIONS },
+    _internal: {
+        isSupported, resolveBinPath, runAnylint, findMatchingFinding, findingsByDocUri, SUPPORTED_EXTENSIONS,
+        diagnostics, treeProvider, AnyLintFileItem, AnyLintFindingItem, analyzeDocument,
+    },
 };

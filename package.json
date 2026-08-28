@@ -4,6 +4,7 @@
   "description": "Inline-підказки з anylint (кросплатформного статичного аналізатора, 16 мов) прямо в редакторі, з quick fix для правил, що це підтримують.",
   "version": "0.1.0",
   "publisher": "Faneraiy14",
+  "icon": "media/icon.png",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -45,6 +46,45 @@
       {
         "command": "anylint.runOnCurrentFile",
         "title": "AnyLint: перевірити поточний файл"
+      },
+      {
+        "command": "anylint.refreshAll",
+        "title": "AnyLint: перевірити всі відкриті файли",
+        "icon": "$(refresh)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "anylint",
+          "title": "AnyLint",
+          "icon": "media/activitybar-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "anylint": [
+        {
+          "id": "anylintFindings",
+          "name": "Знахідки",
+          "icon": "media/activitybar-icon.svg",
+          "contextualTitle": "AnyLint"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "anylint.refreshAll",
+          "when": "view == anylintFindings",
+          "group": "navigation"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "anylintFindings",
+        "contents": "Немає знахідок у відкритих файлах.\n[Перевірити всі відкриті файли](command:anylint.refreshAll)"
       }
     ]
   }

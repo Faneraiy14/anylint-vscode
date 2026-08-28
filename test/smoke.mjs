@@ -53,6 +53,39 @@ test('runAnylint: реальний прогін знаходить promotable-re
     assert.equal(promo[0].fix.replacement, ': array|null');
 });
 
+test('AnyLintTreeProvider: групує знахідки по файлу й сортує за рядком', () => {
+    const uriA = { toString: () => 'file:///a.php', fsPath: '/proj/a.php' };
+    const uriB = { toString: () => 'file:///b.php', fsPath: '/proj/b.php' };
+    _internal.diagnostics.set(uriA, [
+        { message: 'друга', code: 'empty-catch', severity: 1, range: { start: { line: 9 } } },
+        { message: 'перша', code: 'dead-code-after-return', severity: 1, range: { start: { line: 2 } } },
+    ]);
+    _internal.diagnostics.set(uriB, [
+        { message: 'єдина', code: 'hardcoded-secret', severity: 0, range: { start: { line: 0 } } },
+    ]);
+
+    const files = _internal.treeProvider.getChildren();
+    assert.equal(files.length, 2, 'по одному вузлу на кожен файл зі знахідками');
+    assert.equal(files[0].label, 'a.php');
+    assert.equal(files[0].description, '2');
+
+    const findingsA = _internal.treeProvider.getChildren(files[0]);
+    assert.equal(findingsA.length, 2);
+    assert.equal(findingsA[0].label, 'перша', 'відсортовано за номером рядка, а не порядком у масиві');
+    assert.equal(findingsA[1].label, 'друга');
+    assert.equal(findingsA[0].command.command, 'vscode.open', 'клік має відкривати файл на рядку знахідки');
+
+    _internal.diagnostics.delete(uriA);
+    _internal.diagnostics.delete(uriB);
+});
+
+test('AnyLintTreeProvider: файл без знахідок (порожній diags) - не показується', () => {
+    const uri = { toString: () => 'file:///clean.php', fsPath: '/proj/clean.php' };
+    _internal.diagnostics.set(uri, []);
+    const files = _internal.treeProvider.getChildren();
+    assert.equal(files.find((f) => f.fileUri === uri), undefined);
+});
+
 test('findMatchingFinding: знаходить Finding за рядком і правилом діагностики', () => {
     const uri = { toString: () => 'file:///fake.php' };
     const document = { uri };
