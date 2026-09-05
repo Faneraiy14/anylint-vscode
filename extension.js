@@ -104,7 +104,11 @@ function isSupported(document) {
 
 // binPath не заданий явно (типовий випадок) - шукаємо сусідню теку
 // "anylint" поруч із поточним workspace-коренем (найчастіший сценарій:
-// клони репозиторіїв лежать в одній батьківській теці, як у автора).
+// клони репозиторіїв лежать в одній батьківській теці). Якщо workspace
+// відкритий не поруч з anylint (інша тека, інший диск, інший користувач) -
+// евристика не спрацює, і замість вгадування точного шляху (який працює
+// тільки в одного конкретного користувача) користувачу пропонується
+// обрати файл вручну через promptForBinPath().
 function resolveBinPath() {
     const configured = vscode.workspace.getConfiguration('anylint').get('binPath');
     if (configured && configured.trim() !== '') return configured;
@@ -121,6 +125,37 @@ function resolveBinPath() {
         if (fs.existsSync(c)) return c;
     }
     return null;
+}
+
+// Відкриває системний діалог вибору файлу, зберігає обраний шлях у
+// налаштування (User scope, щоб діяло у всіх workspace) і повертає його -
+// щоб виклик міг одразу продовжити аналіз без повторного натискання команди.
+async function promptForBinPath() {
+    const picked = await vscode.window.showOpenDialog({
+        title: 'Оберіть виконуваний файл bin/anylint',
+        canSelectMany: false,
+        canSelectFolders: false,
+        openLabel: 'Обрати',
+    });
+    if (!picked || picked.length === 0) return null;
+
+    const binPath = picked[0].fsPath;
+    await vscode.workspace
+        .getConfiguration('anylint')
+        .update('binPath', binPath, vscode.ConfigurationTarget.Global);
+    return binPath;
+}
+
+async function resolveBinPathOrPrompt() {
+    const found = resolveBinPath();
+    if (found) return found;
+
+    const choice = await vscode.window.showWarningMessage(
+        'AnyLint: не знайдено bin/anylint. Задай "anylint.binPath" у налаштуваннях.',
+        'Обрати файл...'
+    );
+    if (choice !== 'Обрати файл...') return null;
+    return promptForBinPath();
 }
 
 function runAnylint(filePath, binPath, phpPath) {
@@ -196,11 +231,8 @@ async function analyzeWorkspace() {
         vscode.window.showWarningMessage('AnyLint: немає відкритого workspace для сканування.');
         return;
     }
-    const binPath = resolveBinPath();
+    const binPath = await resolveBinPathOrPrompt();
     if (!binPath) {
-        vscode.window.showWarningMessage(
-            'AnyLint: не знайдено bin/anylint. Задай "anylint.binPath" у налаштуваннях.'
-        );
         return;
     }
     const phpPath = vscode.workspace.getConfiguration('anylint').get('phpPath') || 'php';
